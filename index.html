@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#07151b">
+  <meta name="description" content="SIREN Antarctic daily sea-ice forecast and research route-planning dashboard">
+  <title>SIREN · Antarctic Sea-Ice Forecast & Route Planner</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <div class="noise"></div>
+  <header class="topbar">
+    <a class="brand" href="./" aria-label="SIREN home">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <strong>SIREN · Antarctic Sea-Ice Forecast & Route Planner</strong>
+    </a>
+    <div class="top-actions">
+      <div id="freshness-chip" class="status-chip stale">
+        <span class="pulse"></span><span id="freshness-label">Checking status</span>
+      </div>
+      <button id="about-button" class="ghost-button" type="button">Research scope</button>
+    </div>
+  </header>
+
+  <main class="app-main">
+    <section class="workspace app-workspace">
+      <article class="map-panel panel">
+        <div class="panel-head map-panel-head">
+          <div class="forecast-date-heading">
+            <span>Date</span>
+            <div class="date-stepper" role="group" aria-label="Forecast date controls">
+              <button id="target-date-prev" type="button" aria-label="Previous date" title="Previous date">←</button>
+              <input id="target-date-input" type="date" aria-label="Date">
+              <button id="target-date-next" type="button" aria-label="Next date" title="Next date">→</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="map-toolbar">
+          <div class="station-tools" aria-label="Antarctic station locations">
+            <div class="station-filter-row">
+              <select id="station-country" aria-label="Destination country"><option value="all">All countries</option></select>
+              <div class="route-query" aria-label="Route selection">
+                <span>Go to</span>
+                <select id="destination-select" aria-label="Antarctic route destination"><option value="jang_bogo">Jang Bogo Station</option></select>
+                <span>with</span>
+                <select id="ice-class-select" aria-label="POLARIS vessel ice class"><option value="PC5">PC5 · Araon default</option></select>
+              </div>
+            </div>
+          </div>
+          <div class="map-tools" aria-label="Map zoom controls">
+            <button id="zoom-out" type="button" aria-label="Zoom out">−</button>
+            <label for="map-zoom"><span>ZOOM</span><input id="map-zoom" type="range" min="1" max="4" value="1" step="0.1"><output id="map-zoom-output" for="map-zoom">100%</output></label>
+            <button id="zoom-in" type="button" aria-label="Zoom in">+</button>
+            <button id="zoom-reset" type="button">RESET</button>
+          </div>
+        </div>
+
+        <div class="map-wrap">
+          <canvas id="ice-map" width="760" height="640" aria-label="Antarctic sea-ice forecast and proposed route"></canvas>
+          <div class="map-fallback" id="map-fallback"><div class="radar"></div><p>Forecast fields will appear here once they are available.</p></div>
+        </div>
+
+        <div class="map-footer-bars" aria-label="Map legend">
+          <div class="map-legend"><span>Open water</span><div class="gradient"></div><span>100% SIC</span></div>
+          <div class="route-key">
+            <span><i class="forecast-line"></i>SIREN proposed route</span>
+            <span><i class="start-point"></i>approach</span>
+            <span><i class="goal-point"></i><b id="route-goal-label">Jang Bogo</b> · destination</span>
+          </div>
+        </div>
+
+        <div class="lead-control" hidden aria-hidden="true">
+          <output id="lead-output" for="lead-range">60 days</output>
+          <input id="lead-range" type="range" min="1" max="180" value="60" step="1">
+          <div class="anchor-row">
+            <button data-lead="1">1</button><button data-lead="3">3</button><button data-lead="7">7</button><button data-lead="14">14</button><button data-lead="30">30</button><button data-lead="60">60</button><button data-lead="90">90</button><button data-lead="120">120</button><button data-lead="150">150</button><button data-lead="180">180</button>
+          </div>
+        </div>
+      </article>
+
+      <aside class="side-stack">
+        <article class="panel decision-card">
+          <div class="panel-head compact">
+            <div><p id="route-decision-kicker" class="kicker">PC5 DECISION SUPPORT</p><h2 id="route-title">Route to Jang Bogo Station</h2></div>
+          </div>
+          <p id="destination-operator" class="destination-meta">Republic of Korea · offshore approach corridor</p>
+          <section class="sidebar-calendar" aria-label="Monthly voyage-time outlook">
+            <div class="sidebar-calendar-head">
+              <h3 id="calendar-title">Monthly voyage times</h3>
+              <div class="month-nav"><button id="prev-month" type="button" aria-label="previous month">←</button><button id="today-month" type="button">Start</button><button id="next-month" type="button" aria-label="next month">→</button></div>
+            </div>
+            <input id="calendar-month-input" type="month" hidden aria-hidden="true">
+            <p id="forecast-date-range" class="forecast-date-range" hidden>Checking available forecast dates.</p>
+            <div class="weekday-row compact-weekdays" aria-hidden="true"><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span><span>S</span></div>
+            <div id="calendar-grid" class="calendar-grid compact-calendar"></div>
+            <div class="calendar-note compact-note"><span id="route-calendar-legend"><i class="dot route-go"></i>VOYAGE TIME</span><span><i class="dot route-hold"></i>HOLD / NO PATH</span></div>
+          </section>
+          <div class="decision-state">
+            <div id="decision-icon" class="decision-icon pending">?</div>
+            <div><small>Selected date</small><strong id="decision-label">Awaiting forecast</strong><p id="decision-copy">Departure guidance is withheld until a validated forecast field is available.</p></div>
+          </div>
+          <dl class="metrics">
+            <div><dt>Expected voyage time</dt><dd id="eta-value">—</dd></div>
+            <div><dt>Proposed route length</dt><dd id="route-distance-value">—</dd></div>
+            <div><dt>Minimum RIO</dt><dd id="rio-value">—</dd></div>
+          </dl>
+        </article>
+      </aside>
+    </section>
+  </main>
+
+  <dialog id="about-dialog" class="scope-dialog">
+    <form method="dialog">
+      <button class="dialog-close" aria-label="close">×</button>
+      <p class="kicker">SCOPE, INPUTS & LIMITATIONS</p>
+      <h2>Research decision support</h2>
+      <p>SIREN forecasts daily Antarctic sea-ice concentration for the next 180 days and converts each field into destination- and ice-class-conditioned route guidance. It does not replace the judgment of a vessel master, ice navigator, or national ice service.</p>
+      <div class="scope-clocks">
+        <article><span>FORECAST ISSUE</span><strong id="issue-date">—</strong><small>Data cutoff <b id="data-cutoff">—</b></small></article>
+        <article><span>LIVE SIC</span><strong id="sic-latest">—</strong><small id="sic-provider">Checking provider</small></article>
+        <article><span>ERA5T WEATHER</span><strong id="era5-latest">—</strong><small>ECMWF · expected D−5</small></article>
+        <article><span>JOINT ISSUE</span><strong id="joint-issue">—</strong><small id="issue-policy">Earlier input date</small></article>
+        <article><span>NEXT UPDATE</span><strong id="next-update">—</strong><small>Scheduled daily snapshot</small></article>
+        <article><span>PROVIDER VALIDATION</span><strong id="provider-validation">Pending</strong><small id="provider-validation-detail">AU_SI12 overlap · route impact gate</small></article>
+      </div>
+      <ol class="pipeline-list scope-pipeline">
+        <li><span class="step-dot" id="sic-dot"></span><div><b id="sic-provider-label">Operational SIC</b><small id="sic-status">Checking</small></div></li>
+        <li><span class="step-dot" id="era5-dot"></span><div><b id="era5-provider-label">ERA5T causal history</b><small id="era5-status">Checking</small></div></li>
+        <li><span class="step-dot" id="model-dot"></span><div><b>SIREN inference</b><small id="model-status">Checking</small></div></li>
+        <li><span class="step-dot" id="route-dot"></span><div><b id="route-pipeline-label">Ship-class route planning</b><small id="route-status">Checking</small></div></li>
+        <li><span class="step-dot" id="publish-dot"></span><div><b>Atomic publication</b><small id="publish-status">Checking</small></div></li>
+      </ol>
+      <ul>
+        <li>The selected model produces one forecast field for every day in the 180-day horizon; displayed fields are not interpolated.</li>
+        <li>Routes use a destination-specific offshore approach, strict POLARIS RIO ≥ 0, and a research-preview voyage-duration rule.</li>
+        <li>All 83 Antarctic facility locations are shown; route products are enabled only for selected coastal destinations with defined approach corridors.</li>
+        <li>When data become stale, the interface labels the product instead of presenting it as current operational guidance.</li>
+        <li>Sources: <a href="https://data.marine.copernicus.eu/product/SEAICE_GLO_SEAICE_L4_NRT_OBSERVATIONS_011_001/description" target="_blank" rel="noreferrer">OSI SAF sea ice</a>, <a href="https://cds.climate.copernicus.eu/datasets/reanalysis-era5-single-levels" target="_blank" rel="noreferrer">ECMWF ERA5</a>, and the Antarctic Facilities List (November 2024).</li>
+      </ul>
+      <p class="build-line">Build: <span id="build-info">snapshot</span></p>
+    </form>
+  </dialog>
+  <script src="./app.js" defer></script>
+</body>
+</html>
