@@ -1044,7 +1044,6 @@ $("today-month").addEventListener("click", () => {
   state.month = new Date(Date.UTC(issue.getUTCFullYear(), issue.getUTCMonth(), 1));
   renderCalendar();
 });
-$("about-button").addEventListener("click", () => $("about-dialog").showModal());
 $("station-country").addEventListener("change", async (event) => {
   state.stationCountry = event.target.value;
   hydrateStationControls();
