@@ -1,0 +1,58 @@
+name: SIREN daily research issue
+
+on:
+  schedule:
+    - cron: "15 06 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: siren-daily-pages
+  cancel-in-progress: false
+
+jobs:
+  generate-and-publish:
+    runs-on: [self-hosted, linux, siren-inference]
+    timeout-minutes: 240
+    steps:
+      - name: Check out the Pages worktree
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+
+      - name: Verify the persistent inference host
+        env:
+          SIREN_WORKSPACE: /root/Workspace_SIREN
+        run: /root/.venvs/siren-daily/bin/python /root/Workspace_SIREN/apps/siren-daily/scripts/preflight.py
+
+      - name: Acquire inputs and generate the daily issue
+        working-directory: /root/Workspace_SIREN/apps/siren-daily
+        run: /root/.venvs/siren-daily/bin/python worker/daily_pipeline.py --mode acquire --env-file /root/.config/siren/siren-daily.env
+
+      - name: Validate pipeline contracts
+        working-directory: /root/Workspace_SIREN/apps/siren-daily
+        run: /root/.venvs/siren-daily/bin/python -m unittest discover -s tests -v
+
+      - name: Build a validated Pages bundle
+        working-directory: /root/Workspace_SIREN/apps/siren-daily
+        run: /root/.venvs/siren-daily/bin/python scripts/prepare_pages.py --output "$RUNNER_TEMP/siren-pages"
+
+      - name: Synchronize the public Pages branch
+        env:
+          SIREN_WORKSPACE: /root/Workspace_SIREN
+        run: /root/.venvs/siren-daily/bin/python /root/Workspace_SIREN/apps/siren-daily/scripts/sync_pages_worktree.py --bundle "$RUNNER_TEMP/siren-pages" --worktree "$GITHUB_WORKSPACE"
+
+      - name: Commit and publish the daily issue
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add --all
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          issue_date="$(/root/.venvs/siren-daily/bin/python -c 'import json; print(json.load(open("/root/Workspace_SIREN/apps/siren-daily/public/data/latest.json"))["issue_date"])')"
+          git commit -m "daily ${issue_date}"
+          git push origin HEAD:gh-pages
