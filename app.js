@@ -10,7 +10,6 @@ const state = {
   snapshot: null,
   forecastManifest: null,
   routeManifest: null,
-  historyManifest: null,
   iceClass: "PC5",
   destination: "jang_bogo",
   stationCatalog: null,
@@ -76,31 +75,6 @@ function nearestAnchors(lead) {
 
 function routeForLead(lead) {
   return state.routeManifest?.routes?.[String(lead)] || null;
-}
-
-function routeForDate(dateStr) {
-  return state.routeManifest?.history?.[dateStr] || null;
-}
-
-async function loadHistoryField(dateStr) {
-  const cacheKey = `history:${dateStr}`;
-  if (state.fieldCache.has(cacheKey)) return state.fieldCache.get(cacheKey);
-  const descriptor = state.historyManifest?.dates?.[dateStr];
-  if (!descriptor?.url) throw new Error(`no observed SIC field registered for ${dateStr}`);
-  const response = await fetch(siteUrl(descriptor.url), { cache: "no-store" });
-  if (!response.ok) throw new Error(`${descriptor.url} status ${response.status}`);
-  const values = new Uint8Array(await response.arrayBuffer());
-  const expected = Number(state.historyManifest.width) * Number(state.historyManifest.height);
-  if (values.length !== expected) {
-    throw new Error(`${dateStr} field size ${values.length}; expected ${expected}`);
-  }
-  const field = { values, width: Number(state.historyManifest.width), height: Number(state.historyManifest.height), descriptor };
-  state.fieldCache.set(cacheKey, field);
-  return field;
-}
-
-function fieldForDate(dateStr) {
-  return loadHistoryField(dateStr);
 }
 
 function availableIceClasses() {
@@ -237,28 +211,19 @@ function updateSelection() {
   state.selectedDate = target;
   state.month = new Date(Date.UTC(target.getUTCFullYear(), target.getUTCMonth(), 1));
 
-  const isHistorical = state.lead < 1;
   $("lead-range").value = state.lead;
-  $("lead-output").textContent = isHistorical
-    ? `${isoDate(target)} (observed)`
-    : `${state.lead} ${state.lead === 1 ? "day" : "days"}`;
+  $("lead-output").textContent = `${state.lead} ${state.lead === 1 ? "day" : "days"}`;
   const targetInput = $("target-date-input");
   targetInput.value = isoDate(target);
   $("target-date-prev").disabled = targetInput.disabled || state.lead <= 1;
   $("target-date-next").disabled = targetInput.disabled || state.lead >= horizon;
-  let source;
-  if (isHistorical) {
-    state.currentRoute = routeForDate(isoDate(target));
-    source = state.currentRoute ? "observed" : "unavailable";
-  } else {
-    source = leadSource(state.lead);
-    state.currentRoute = routeForLead(state.lead);
-  }
+  const source = leadSource(state.lead);
+  state.currentRoute = routeForLead(state.lead);
   document.querySelectorAll(".anchor-row button").forEach((button) => {
     button.classList.toggle("active", Number(button.dataset.lead) === state.lead);
   });
   updateDecision(source);
-  renderMap(source, isHistorical ? isoDate(target) : null);
+  renderMap(source);
   renderCalendar();
 }
 
@@ -749,9 +714,9 @@ function observationField() {
   return { values, width: grid.width, height: grid.height };
 }
 
-async function renderMap(source, historicalDate = null) {
+async function renderMap(source) {
   const token = ++state.renderToken;
-  if (source === "unavailable" || (!historicalDate && !state.forecastManifest)) {
+  if (source === "unavailable" || !state.forecastManifest) {
     drawField(
       observationField(),
       `${state.snapshot?.map_preview?.label || "Latest SIC observation"} · OBSERVATION ONLY`,
@@ -763,17 +728,16 @@ async function renderMap(source, historicalDate = null) {
   ctx.clearRect(0, 0, width, height);
   ctx.fillStyle = "rgba(141,162,166,.85)";
   ctx.font = `600 13px ${MAP_FONT}`;
-  const target = historicalDate || isoDate(addDays(parseDate(state.snapshot.issue_date), state.lead));
-  ctx.fillText(
-    `Loading ${historicalDate ? "observed sea ice" : "sea-ice forecast"} for ${target}…`, 18, 25);
+  const target = isoDate(addDays(parseDate(state.snapshot.issue_date), state.lead));
+  ctx.fillText(`Loading sea-ice forecast for ${target}…`, 18, 25);
   try {
-    const field = historicalDate ? await fieldForDate(historicalDate) : await fieldForLead(state.lead, source);
+    const field = await fieldForLead(state.lead, source);
     if (token !== state.renderToken) return;
-    drawField(field, `${historicalDate ? "Observed sea ice" : "Sea-ice forecast"} for ${target}`, source);
+    drawField(field, label, source);
   } catch (error) {
     if (token !== state.renderToken) return;
     console.error(error);
-    drawField(observationField(), `${historicalDate ? "Observed field" : "Forecast"} load failed · showing observation only`, "unavailable");
+    drawField(observationField(), `Forecast load failed · showing observation only`, "unavailable");
   }
 }
 function renderCalendar() {
@@ -803,17 +767,14 @@ function renderCalendar() {
   for (let i = 0; i < 42; i++) {
     const date = addDays(start, i);
     const lead = Math.round((date - issue) / 86400000);
-    const isForecast = lead >= 1 && lead <= 180;
-    const isHistory = !isForecast && Boolean(routeForDate(isoDate(date)));
-    const source = isForecast ? leadSource(lead) : isHistory ? "observed" : "unavailable";
-    const route = isForecast ? routeForLead(lead) : isHistory ? routeForDate(isoDate(date)) : null;
+    const source = lead >= 1 && lead <= 180 ? leadSource(lead) : "unavailable";
+    const route = lead >= 1 && lead <= 180 ? routeForLead(lead) : null;
     const routeClass = route?.recommendation === "go" ? "route-go" : route ? "route-hold" : "";
     const routeLabel = !route ? "—" : route.status === "no_path"
       ? "NO PATH" : `${Number(route.eta_days).toFixed(1)}d`;
     const routeDetail = !route ? "Route unavailable" : route.status === "no_path"
       ? `${state.iceClass}: no continuous route` :
-        `${state.iceClass}: ${Number(route.eta_days).toFixed(2)} days · ${route.recommendation.toUpperCase()}`
-          + (isHistory ? " · observed" : "");
+        `${state.iceClass}: ${Number(route.eta_days).toFixed(2)} days · ${route.recommendation.toUpperCase()}`;
     const button = document.createElement("button");
     button.type = "button";
     button.className = `day-cell ${source} ${routeClass}${date.getUTCMonth() !== month ? " outside" : ""}${isoDate(date) === isoDate(state.selectedDate) ? " selected" : ""}`;
@@ -822,7 +783,7 @@ function renderCalendar() {
     button.innerHTML = `
       <span class="date">${date.getUTCDate()}</span>
       <span class="route-state">${routeLabel}</span>`;
-    button.disabled = !isForecast && !isHistory;
+    button.disabled = lead < 1 || lead > 180;
     button.addEventListener("click", () => {
       state.lead = lead;
       updateSelection();
@@ -914,21 +875,9 @@ async function load() {
       const snapshot = await response.json();
       state.forecastManifest = null;
       state.routeManifest = null;
-      state.historyManifest = null;
       state.stationCatalog = null;
       state.currentRoute = null;
       state.fieldCache.clear();
-      try {
-        const historyResponse = await fetch(siteUrl("data/history-index.json"), { cache: "no-store" });
-        if (historyResponse.ok) {
-          const historyManifest = await historyResponse.json();
-          if (historyManifest.width === 632 && historyManifest.height === 664) {
-            state.historyManifest = historyManifest;
-          }
-        }
-      } catch (historyError) {
-        console.error(historyError);
-      }
       try {
         const stationResponse = await fetch(siteUrl("data/stations/comnap_stations_nov2024.json"), { cache: "no-store" });
         if (!stationResponse.ok) throw new Error(`station catalog status ${stationResponse.status}`);
@@ -1044,6 +993,7 @@ $("today-month").addEventListener("click", () => {
   state.month = new Date(Date.UTC(issue.getUTCFullYear(), issue.getUTCMonth(), 1));
   renderCalendar();
 });
+$("about-button").addEventListener("click", () => $("about-dialog").showModal());
 $("station-country").addEventListener("change", async (event) => {
   state.stationCountry = event.target.value;
   hydrateStationControls();

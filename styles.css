@@ -319,7 +319,7 @@ body { overflow:hidden; }
   padding:10px 0 12px;
 }
 .app-workspace {
-  height:100%; min-height:0; grid-template-columns:420px minmax(0,1fr); gap:12px;
+  height:100%; min-height:0; grid-template-columns:360px minmax(0,1fr); gap:12px;
   grid-template-areas:"sidebar map";
 }
 .map-panel {
@@ -397,8 +397,7 @@ input[type=range] { margin:7px 0 4px; }
     grid-template-areas:"map" "sidebar";
   }
   .map-panel { height:auto; }
-  .map-wrap { aspect-ratio:1; height:auto; min-height:0; }
-  #ice-map { height:100%; min-height:0; }
+  .map-wrap, #ice-map { height:580px; min-height:580px; }
   .side-stack { height:auto; }
   .decision-card { height:auto; }
 }
@@ -414,6 +413,7 @@ input[type=range] { margin:7px 0 4px; }
   .map-toolbar { align-items:stretch; flex-direction:column; }
   .station-filter-row { flex-wrap:wrap; }
   .station-filter-row a { margin-left:0; }
+  .map-wrap, #ice-map { height:500px; min-height:500px; }
   .map-footer-bars { align-items:stretch; flex-direction:column; }
   .route-key { white-space:normal; justify-content:flex-start; }
   .scope-clocks { grid-template-columns:1fr 1fr; }
@@ -442,7 +442,7 @@ input[type=range] { margin:7px 0 4px; }
 .compact-weekdays span { padding:0; text-align:center; font-size:9px; font-weight:650; }
 .compact-calendar { gap:4px; }
 .compact-calendar .day-cell {
-  min-width:0; min-height:0; aspect-ratio:1; padding:6px 4px; border-radius:7px; text-align:center;
+  min-width:0; min-height:48px; padding:6px 4px; border-radius:7px; text-align:center;
   display:flex; flex-direction:column; justify-content:space-between; align-items:center;
 }
 .compact-calendar .day-cell:hover { transform:none; border-color:rgba(130,234,210,.36); }
@@ -462,7 +462,7 @@ input[type=range] { margin:7px 0 4px; }
 .decision-card .decision-state { grid-template-columns:46px 1fr; gap:11px; }
 .decision-card .metrics div { padding:8px 0; }
 @media (max-width:1100px) {
-  .sidebar-calendar { max-width:420px; margin-left:auto; margin-right:auto; }
+  .sidebar-calendar { max-width:420px; }
 }
 @media (max-width:700px) {
   .station-filter-row select#destination-select { width:100%; min-width:0; }
