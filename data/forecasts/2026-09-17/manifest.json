@@ -2,7 +2,7 @@
   "schema_version": 3,
   "kind": "siren_dsched_shared_daily_forecasts",
   "issue_date": "2026-09-17",
-  "generated_at": "2026-09-22T22:34:53.577239+00:00",
+  "generated_at": "2026-09-22T22:45:45.672705+00:00",
   "research_only": true,
   "provider_validation": "pending",
   "device": "physical_gpu_0",
