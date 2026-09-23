@@ -15,12 +15,6 @@
       <span class="brand-mark" aria-hidden="true"></span>
       <strong>SIREN · Antarctic Sea-Ice Forecast & Route Planner</strong>
     </a>
-    <div class="top-actions">
-      <div id="freshness-chip" class="status-chip stale">
-        <span class="pulse"></span><span id="freshness-label">Checking status</span>
-      </div>
-      <button id="about-button" class="ghost-button" type="button">Research scope</button>
-    </div>
   </header>
 
   <main class="app-main">
@@ -111,37 +105,6 @@
     </section>
   </main>
 
-  <dialog id="about-dialog" class="scope-dialog">
-    <form method="dialog">
-      <button class="dialog-close" aria-label="close">×</button>
-      <p class="kicker">SCOPE, INPUTS & LIMITATIONS</p>
-      <h2>Research decision support</h2>
-      <p>SIREN forecasts daily Antarctic sea-ice concentration for the next 180 days and converts each field into destination- and ice-class-conditioned route guidance. It does not replace the judgment of a vessel master, ice navigator, or national ice service.</p>
-      <div class="scope-clocks">
-        <article><span>FORECAST ISSUE</span><strong id="issue-date">—</strong><small>Data cutoff <b id="data-cutoff">—</b></small></article>
-        <article><span>LIVE SIC</span><strong id="sic-latest">—</strong><small id="sic-provider">Checking provider</small></article>
-        <article><span>ERA5T WEATHER</span><strong id="era5-latest">—</strong><small>ECMWF · expected D−5</small></article>
-        <article><span>JOINT ISSUE</span><strong id="joint-issue">—</strong><small id="issue-policy">Earlier input date</small></article>
-        <article><span>NEXT UPDATE</span><strong id="next-update">—</strong><small>Scheduled daily snapshot</small></article>
-        <article><span>PROVIDER VALIDATION</span><strong id="provider-validation">Pending</strong><small id="provider-validation-detail">AU_SI12 overlap · route impact gate</small></article>
-      </div>
-      <ol class="pipeline-list scope-pipeline">
-        <li><span class="step-dot" id="sic-dot"></span><div><b id="sic-provider-label">Operational SIC</b><small id="sic-status">Checking</small></div></li>
-        <li><span class="step-dot" id="era5-dot"></span><div><b id="era5-provider-label">ERA5T causal history</b><small id="era5-status">Checking</small></div></li>
-        <li><span class="step-dot" id="model-dot"></span><div><b>SIREN inference</b><small id="model-status">Checking</small></div></li>
-        <li><span class="step-dot" id="route-dot"></span><div><b id="route-pipeline-label">Ship-class route planning</b><small id="route-status">Checking</small></div></li>
-        <li><span class="step-dot" id="publish-dot"></span><div><b>Atomic publication</b><small id="publish-status">Checking</small></div></li>
-      </ol>
-      <ul>
-        <li>The selected model produces one forecast field for every day in the 180-day horizon; displayed fields are not interpolated.</li>
-        <li>Routes use a destination-specific offshore approach, strict POLARIS RIO ≥ 0, and a research-preview voyage-duration rule.</li>
-        <li>All 83 Antarctic facility locations are shown; route products are enabled only for selected coastal destinations with defined approach corridors.</li>
-        <li>When data become stale, the interface labels the product instead of presenting it as current operational guidance.</li>
-        <li>Sources: <a href="https://data.marine.copernicus.eu/product/SEAICE_GLO_SEAICE_L4_NRT_OBSERVATIONS_011_001/description" target="_blank" rel="noreferrer">OSI SAF sea ice</a>, <a href="https://cds.climate.copernicus.eu/datasets/reanalysis-era5-single-levels" target="_blank" rel="noreferrer">ECMWF ERA5</a>, and the Antarctic Facilities List (November 2024).</li>
-      </ul>
-      <p class="build-line">Build: <span id="build-info">snapshot</span></p>
-    </form>
-  </dialog>
   <script src="./app.js" defer></script>
 </body>
 </html>
