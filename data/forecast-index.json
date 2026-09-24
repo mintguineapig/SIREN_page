@@ -1,8 +1,8 @@
 {
   "schema_version": 2,
-  "issue_date": "2026-09-18",
-  "generated_at": "2026-09-23T06:16:48.423617+00:00",
-  "manifest_url": "/data/forecasts/2026-09-18/manifest.json",
+  "issue_date": "2026-09-19",
+  "generated_at": "2026-09-24T06:17:03.757309+00:00",
+  "manifest_url": "/data/forecasts/2026-09-19/manifest.json",
   "model_tag": "lcond_dsched_lb3_L1-180n64_era5past_lnlog_lwpersist",
   "model_mode": "dsched"
 }
