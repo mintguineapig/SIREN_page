@@ -1,5 +1,8 @@
 const ANCHORS = [1, 3, 7, 14, 30, 60, 90, 120, 150, 180];
 const $ = (id) => document.getElementById(id);
+// The status panel was removed from index.html; writes to its elements are skipped.
+const setText = (id, text) => { const el = $(id); if (el) el.textContent = text; };
+const setClass = (id, className) => { const el = $(id); if (el) el.className = className; };
 const SITE_BASE = new URL("./", document.baseURI);
 const siteUrl = (value) => {
   if (!value || /^(https?:)?\/\//.test(value)) return value;
@@ -149,7 +152,7 @@ function hydrateIceClassControl() {
   if (classes.includes(state.iceClass)) select.value = state.iceClass;
   select.disabled = classes.length < 2;
   $("route-decision-kicker").textContent = `${state.iceClass} DECISION SUPPORT`;
-  $("route-pipeline-label").textContent = `${state.iceClass} route planning`;
+  setText("route-pipeline-label", `${state.iceClass} route planning`);
   $("route-calendar-legend").innerHTML = `<i class="dot route-go"></i>${state.iceClass} VOYAGE TIME`;
 }
 
@@ -733,7 +736,7 @@ async function renderMap(source) {
   try {
     const field = await fieldForLead(state.lead, source);
     if (token !== state.renderToken) return;
-    drawField(field, label, source);
+    drawField(field, `Sea-ice forecast for ${target}`, source);
   } catch (error) {
     if (token !== state.renderToken) return;
     console.error(error);
@@ -793,36 +796,34 @@ function renderCalendar() {
 }
 
 function setPipeline(dotId, textId, stage) {
-  const dot = $(dotId);
   const status = stage?.status || "pending";
-  dot.className = `step-dot ${status === "ok" ? "ok" : status === "failed" ? "fail" : "warn"}`;
-  $(textId).textContent = stage?.message || "No status information";
+  setClass(dotId, `step-dot ${status === "ok" ? "ok" : status === "failed" ? "fail" : "warn"}`);
+  setText(textId, stage?.message || "No status information");
 }
 
 function hydrate(snapshot) {
   state.snapshot = snapshot;
   hydrateStationControls();
   const issue = parseDate(snapshot.issue_date);
-  $("issue-date").textContent = snapshot.issue_date || "No issue date";
-  $("data-cutoff").textContent = snapshot.data_cutoff || "—";
-  $("next-update").textContent = snapshot.next_scheduled_update || "Manual";
-  $("build-info").textContent = `${snapshot.build_id || "snapshot"} · ${snapshot.generated_at || "—"}`;
+  setText("issue-date", snapshot.issue_date || "No issue date");
+  setText("data-cutoff", snapshot.data_cutoff || "—");
+  setText("next-update", snapshot.next_scheduled_update || "Manual");
+  setText("build-info", `${snapshot.build_id || "snapshot"} · ${snapshot.generated_at || "—"}`);
   const sources = snapshot.data_sources || {};
-  $("sic-latest").textContent = sources.sic?.latest_date || "—";
-  $("sic-provider").textContent = `${sources.sic?.provider || "SIC provider pending"} · native ${sources.sic?.native_resolution_km || "—"} km`;
-  $("era5-latest").textContent = sources.era5?.latest_date || "—";
-  $("joint-issue").textContent = snapshot.issue_date || "—";
-  $("issue-policy").textContent = sources.issue_policy || "Uses the earlier of the two input dates";
-  $("provider-validation").textContent = snapshot.provider?.approved ? "Approved" : "Pending";
+  setText("sic-latest", sources.sic?.latest_date || "—");
+  setText("sic-provider", `${sources.sic?.provider || "SIC provider pending"} · native ${sources.sic?.native_resolution_km || "—"} km`);
+  setText("era5-latest", sources.era5?.latest_date || "—");
+  setText("joint-issue", snapshot.issue_date || "—");
+  setText("issue-policy", sources.issue_policy || "Uses the earlier of the two input dates");
+  setText("provider-validation", snapshot.provider?.approved ? "Approved" : "Pending");
   const overlap = snapshot.provider?.overlap;
-  $("provider-validation-detail").textContent = overlap?.days
+  setText("provider-validation-detail", overlap?.days
     ? `${overlap.days}-day overlap · MAE ${Number(overlap.mae_pct_sic).toFixed(2)}% · pending approval`
-    : "AU_SI12 overlap · route impact gate";
-  $("sic-provider-label").textContent = sources.sic?.provider || "Operational SIC";
-  $("era5-provider-label").textContent = sources.era5?.provider || "ERA5T causal history";
-  const chip = $("freshness-chip");
-  chip.className = `status-chip ${snapshot.service_status === "live" ? "live" : snapshot.service_status === "validation" ? "validation" : snapshot.service_status === "failed" ? "failed" : "stale"}`;
-  $("freshness-label").textContent = snapshot.service_status_label || snapshot.service_status;
+    : "AU_SI12 overlap · route impact gate");
+  setText("sic-provider-label", sources.sic?.provider || "Operational SIC");
+  setText("era5-provider-label", sources.era5?.provider || "ERA5T causal history");
+  setClass("freshness-chip", `status-chip ${snapshot.service_status === "live" ? "live" : snapshot.service_status === "validation" ? "validation" : snapshot.service_status === "failed" ? "failed" : "stale"}`);
+  setText("freshness-label", snapshot.service_status_label || snapshot.service_status);
   setPipeline("sic-dot", "sic-status", snapshot.pipeline?.sic);
   setPipeline("era5-dot", "era5-status", snapshot.pipeline?.era5);
   setPipeline("model-dot", "model-status", snapshot.pipeline?.inference);
@@ -929,8 +930,8 @@ async function load() {
       lastError = error;
     }
   }
-  $("freshness-label").textContent = "Unable to load status data";
-  $("freshness-chip").className = "status-chip failed";
+  setText("freshness-label", "Unable to load status data");
+  setClass("freshness-chip", "status-chip failed");
   console.error(lastError);
 }
 
@@ -993,7 +994,6 @@ $("today-month").addEventListener("click", () => {
   state.month = new Date(Date.UTC(issue.getUTCFullYear(), issue.getUTCMonth(), 1));
   renderCalendar();
 });
-$("about-button").addEventListener("click", () => $("about-dialog").showModal());
 $("station-country").addEventListener("change", async (event) => {
   state.stationCountry = event.target.value;
   hydrateStationControls();
