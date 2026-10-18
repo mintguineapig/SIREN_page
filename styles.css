@@ -319,7 +319,7 @@ body { overflow:hidden; }
   padding:10px 0 12px;
 }
 .app-workspace {
-  height:100%; min-height:0; grid-template-columns:360px minmax(0,1fr); gap:12px;
+  height:100%; min-height:0; grid-template-columns:410px minmax(0,1fr); gap:12px;
   grid-template-areas:"sidebar map";
 }
 .map-panel {
@@ -442,17 +442,17 @@ input[type=range] { margin:7px 0 4px; }
 .compact-weekdays span { padding:0; text-align:center; font-size:9px; font-weight:650; }
 .compact-calendar { gap:4px; }
 .compact-calendar .day-cell {
-  min-width:0; min-height:48px; padding:6px 4px; border-radius:7px; text-align:center;
+  min-width:0; min-height:52px; padding:6px 2px; border-radius:7px; text-align:center;
   display:flex; flex-direction:column; justify-content:space-between; align-items:center;
 }
 .compact-calendar .day-cell:hover { transform:none; border-color:rgba(130,234,210,.36); }
 .compact-calendar .day-cell .date { font-size:11px; font-weight:650; line-height:1; }
 .compact-calendar .day-cell .route-state {
   display:block; width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
-  margin-top:5px; font:700 9px ui-monospace,monospace; color:#708589;
+  margin-top:6px; font:700 12px ui-monospace,monospace; color:#708589;
 }
 .compact-calendar .day-cell.route-go .route-state { color:#7ef0a8; }
-.compact-calendar .day-cell.route-hold .route-state { color:#ef9b75; }
+.compact-calendar .day-cell.route-hold .route-state { color:#ef9b75; font-size:10px; }
 .compact-calendar .day-cell.selected {
   background:rgba(130,234,210,.1); border-color:rgba(130,234,210,.68);
 }

@@ -80,11 +80,15 @@ function routeForLead(lead) {
   return state.routeManifest?.routes?.[String(lead)] || null;
 }
 
+// Only IACS Polar Classes apply to Antarctic voyages; Baltic (FSICR) classes are hidden.
+const isPolarClass = (iceClass) => /^PC\d$/.test(iceClass);
+
 function availableIceClasses() {
   const route = state.snapshot?.route || {};
-  return route.available_classes?.length
+  const classes = route.available_classes?.length
     ? route.available_classes
     : state.routeManifest?.vessel_class ? [state.routeManifest.vessel_class] : [];
+  return classes.filter(isPolarClass);
 }
 
 function availableDestinations() {
