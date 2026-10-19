@@ -80,6 +80,14 @@
             <div><p id="route-decision-kicker" class="kicker">PC5 DECISION SUPPORT</p><h2 id="route-title">Route to Jang Bogo Station</h2></div>
           </div>
           <p id="destination-operator" class="destination-meta">Republic of Korea · offshore approach corridor</p>
+          <form id="custom-start-form" class="custom-start" aria-label="Custom departure point" novalidate>
+            <span class="custom-start-label">Start</span>
+            <input id="start-lat" type="number" inputmode="decimal" step="any" min="-90" max="-39" placeholder="Lat −62.50" aria-label="Start latitude (degrees, south negative)">
+            <input id="start-lon" type="number" inputmode="decimal" step="any" min="-180" max="180" placeholder="Lon 172.30" aria-label="Start longitude (degrees, west negative)">
+            <button type="submit">Route</button>
+            <button id="custom-start-reset" type="button" title="Use the standard offshore approach">Reset</button>
+          </form>
+          <p id="custom-start-status" class="custom-start-status">Standard offshore approach start. Enter a latitude and longitude to plan from another point.</p>
           <section class="sidebar-calendar" aria-label="Monthly voyage-time outlook">
             <div class="sidebar-calendar-head">
               <h3 id="calendar-title">Monthly voyage times</h3>

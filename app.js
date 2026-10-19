@@ -19,6 +19,9 @@ const state = {
   stationCountry: "all",
   stationSeason: "all",
   currentRoute: null,
+  customStart: null,
+  customRoutes: new Map(),
+  customPending: null,
   fieldCache: new Map(),
   renderToken: 0,
   lead: 60,
@@ -78,6 +81,121 @@ function nearestAnchors(lead) {
 
 function routeForLead(lead) {
   return state.routeManifest?.routes?.[String(lead)] || null;
+}
+
+// Custom departure point: the published 16-day A* is re-run in route-worker.js.
+// The calendar keeps the precomputed standard-approach routes.
+let routeWorker = null;
+let routeWorkerSeq = 0;
+const routeWorkerPending = new Map();
+
+function runRouteWorker(request) {
+  if (!routeWorker) {
+    routeWorker = new Worker(siteUrl("route-worker.js"));
+    routeWorker.onmessage = (event) => {
+      const pending = routeWorkerPending.get(event.data.id);
+      routeWorkerPending.delete(event.data.id);
+      if (!pending) return;
+      if (event.data.ok) pending.resolve(event.data.route);
+      else pending.reject(new Error(event.data.error));
+    };
+  }
+  return new Promise((resolve, reject) => {
+    const id = ++routeWorkerSeq;
+    routeWorkerPending.set(id, { resolve, reject });
+    routeWorker.postMessage({ id, base: SITE_BASE.toString(), ...request });
+  });
+}
+
+function customRouteKey(lead) {
+  const start = state.customStart;
+  return start ? `${state.destination}|${state.iceClass}|${lead}|${start.lat}|${start.lon}` : null;
+}
+
+function currentRouteForLead(lead) {
+  if (!state.customStart) return routeForLead(lead);
+  return state.customRoutes.get(customRouteKey(lead)) || null;
+}
+
+function setCustomStatus(text, tone = "") {
+  const status = $("custom-start-status");
+  status.textContent = text;
+  status.className = `custom-start-status${tone ? ` ${tone}` : ""}`;
+}
+
+function formatLatLon([lat, lon]) {
+  return `${Math.abs(lat).toFixed(2)}°${lat < 0 ? "S" : "N"} ${Math.abs(lon).toFixed(2)}°${lon < 0 ? "W" : "E"}`;
+}
+
+async function requestCustomRoute() {
+  const manifest = state.routeManifest;
+  const fields = state.forecastManifest?.fields;
+  if (!state.customStart || !manifest?.goal?.grid || !fields) return;
+  const key = customRouteKey(state.lead);
+  if (state.customRoutes.has(key) || state.customPending === key) return;
+  state.customPending = key;
+  try {
+    const route = await runRouteWorker({
+      issueDate: state.snapshot.issue_date,
+      lead: state.lead,
+      iceClass: state.iceClass,
+      goal: manifest.goal.grid,
+      startLatLon: [state.customStart.lat, state.customStart.lon],
+      fieldUrls: Object.fromEntries(Object.entries(fields).map(([lead, field]) => [lead, siteUrl(field.url)])),
+    });
+    state.customRoutes.set(key, route);
+  } catch (error) {
+    console.error(error);
+    state.customRoutes.set(key, { status: "error", error: String(error.message || error) });
+  } finally {
+    if (state.customPending === key) state.customPending = null;
+  }
+  if (key !== customRouteKey(state.lead)) return;
+  const route = state.customRoutes.get(key);
+  if (route.custom_start) {
+    const snap = route.custom_start;
+    const far = snap.snap_km > 25;
+    setCustomStatus(
+      `Custom start ${formatLatLon([state.customStart.lat, state.customStart.lon])} → nearest navigable cell `
+      + `${formatLatLon(snap.latlon)} (${snap.snap_km} km away). The calendar still shows the standard approach.`,
+      far ? "warn" : "active",
+    );
+  } else if (route.status === "error") {
+    setCustomStatus(`Route calculation failed: ${route.error}`, "warn");
+  }
+  state.currentRoute = route;
+  const source = leadSource(state.lead);
+  updateDecision(source);
+  renderMap(source);
+}
+
+function applyCustomStart(event) {
+  event.preventDefault();
+  const latInput = $("start-lat");
+  const lonInput = $("start-lon");
+  const lat = Number.parseFloat(latInput.value);
+  const lon = Number.parseFloat(lonInput.value);
+  const latOk = Number.isFinite(lat) && lat >= -90 && lat <= -39;
+  const lonOk = Number.isFinite(lon) && lon >= -180 && lon <= 180;
+  latInput.setAttribute("aria-invalid", String(!latOk));
+  lonInput.setAttribute("aria-invalid", String(!lonOk));
+  if (!latOk || !lonOk) {
+    setCustomStatus("Enter a latitude between −90 and −39 (south is negative) and a longitude between −180 and 180 (west is negative).", "warn");
+    return;
+  }
+  state.customStart = { lat, lon };
+  setCustomStatus(`Calculating the ${state.iceClass} route from ${formatLatLon([lat, lon])}…`);
+  updateSelection();
+}
+
+function resetCustomStart() {
+  state.customStart = null;
+  $("start-lat").value = "";
+  $("start-lon").value = "";
+  $("start-lat").removeAttribute("aria-invalid");
+  $("start-lon").removeAttribute("aria-invalid");
+  setCustomStatus("Standard offshore approach start. Enter a latitude and longitude to plan from another point.");
+  updateSelection();
 }
 
 // Only IACS Polar Classes apply to Antarctic voyages; Baltic (FSICR) classes are hidden.
@@ -225,7 +343,8 @@ function updateSelection() {
   $("target-date-prev").disabled = targetInput.disabled || state.lead <= 1;
   $("target-date-next").disabled = targetInput.disabled || state.lead >= horizon;
   const source = leadSource(state.lead);
-  state.currentRoute = routeForLead(state.lead);
+  state.currentRoute = currentRouteForLead(state.lead);
+  if (state.customStart && !state.currentRoute) requestCustomRoute();
   document.querySelectorAll(".anchor-row button").forEach((button) => {
     button.classList.toggle("active", Number(button.dataset.lead) === state.lead);
   });
@@ -235,6 +354,11 @@ function updateSelection() {
 }
 
 function routeDecisionCopy(route) {
+  if (route.status === "no_path" && route.custom_start) {
+    return route.no_path_reason === "beyond_horizon"
+      ? `From this start point, the ${state.iceClass} route takes longer than the 16-day planning window.`
+      : `No continuous ${state.iceClass} route from this start point satisfies the strict POLARIS threshold for this date.`;
+  }
   if (route.status === "no_path") {
     return `No continuous ${state.iceClass} route satisfies the strict POLARIS threshold for this date.`;
   }
@@ -261,6 +385,19 @@ function updateDecision(source) {
   }
     icon.setAttribute("aria-label", "Route calculation pending");
   const route = state.currentRoute;
+  if (state.customStart && !route) {
+    icon.textContent = "·";
+    $("decision-label").textContent = "Calculating custom route";
+    $("decision-copy").textContent = `Searching the 16-day ${state.iceClass} POLARIS route from your start point…`;
+    return;
+  }
+  if (route?.status === "error") {
+    icon.className = "decision-icon hold";
+    icon.textContent = "";
+    $("decision-label").textContent = "Route calculation failed";
+    $("decision-copy").textContent = route.error;
+    return;
+  }
   if (!route) {
     icon.textContent = "·";
     $("decision-label").textContent = "Awaiting route calculation";
@@ -692,7 +829,9 @@ function drawField(field, label, source, remember = true) {
         lineWidth: 3.5,
       });
     };
-    drawPoint(routeManifest.start.normalized, "#7ef0a8", "START");
+    const customStart = state.customStart ? route?.custom_start?.normalized : null;
+    if (!state.customStart) drawPoint(routeManifest.start.normalized, "#7ef0a8", "START");
+    else if (customStart) drawPoint(customStart, "#7ef0a8", "CUSTOM START");
     const stations = routeManifest.stations || {
       jang_bogo: { normalized: routeManifest.goal?.normalized, label: "JANG BOGO", route_goal: true },
     };
@@ -1010,6 +1149,8 @@ $("station-country").addEventListener("change", async (event) => {
   }
   focusCatalogSelection();
 });
+$("custom-start-form").addEventListener("submit", applyCustomStart);
+$("custom-start-reset").addEventListener("click", resetCustomStart);
 $("map-zoom").addEventListener("input", (event) => setMapZoom(event.target.value));
 $("zoom-in").addEventListener("click", () => setMapZoom(state.mapView.zoom + 0.25));
 $("zoom-out").addEventListener("click", () => setMapZoom(state.mapView.zoom - 0.25));
