@@ -124,6 +124,46 @@ function currentRouteForLead(lead) {
   return state.customRoutes.get(customRouteKey(lead)) || null;
 }
 
+// Gateway port leg (outside the SIC grid), shown while no custom start is set.
+function activePort() {
+  return state.customStart ? null : state.routeManifest?.port || null;
+}
+
+function defaultStartStatus() {
+  const port = state.routeManifest?.port;
+  if (!port) return "Standard offshore approach start. Enter a latitude and longitude, or drag START on the map.";
+  const days = (port.leg_hours / 24).toFixed(1);
+  return `Start: ${port.name}, ${port.country}. ${Math.round(port.leg_km).toLocaleString("en-GB")} km of open water `
+    + `at ${port.speed_kn} kn (${days} d) to the offshore start, then the ice route. `
+    + "Enter a latitude and longitude, or drag START on the map, to start elsewhere.";
+}
+
+let coastline = null;
+let coastlineRequested = false;
+function ensureCoastline() {
+  if (coastlineRequested) return;
+  coastlineRequested = true;
+  fetch(siteUrl("data/routing/coastline.json"))
+    .then((response) => (response.ok ? response.json() : Promise.reject(new Error(`coastline ${response.status}`))))
+    .then((data) => { coastline = data; redrawLastMap(); })
+    .catch((error) => { coastlineRequested = false; console.error(error); });
+}
+
+// Normalized-grid box the map view must contain: the SIC grid plus the port leg.
+function mapBounds() {
+  const bounds = { x0: 0, y0: 0, x1: 1, y1: 1 };
+  const points = activePort()?.waypoints_normalized || [];
+  points.forEach(([x, y], index) => {
+    // Wider margin around the port itself so its coast is recognisable.
+    const pad = index === 0 ? 0.09 : 0.03;
+    bounds.x0 = Math.min(bounds.x0, x - pad);
+    bounds.x1 = Math.max(bounds.x1, x + pad);
+    bounds.y0 = Math.min(bounds.y0, y - pad);
+    bounds.y1 = Math.max(bounds.y1, y + pad);
+  });
+  return bounds;
+}
+
 function setCustomStatus(text, tone = "") {
   const status = $("custom-start-status");
   status.textContent = text;
@@ -243,7 +283,6 @@ function resetCustomStart() {
   $("start-lat").removeAttribute("aria-invalid");
   $("start-lon").removeAttribute("aria-invalid");
   state.startPreview = null;
-  setCustomStatus("Standard offshore approach start. Enter a latitude and longitude, or drag START on the map.");
   updateSelection();
 }
 
@@ -306,7 +345,9 @@ function hydrateDestinationControl() {
   const destinationName = info.name || "selected station";
   const stationName = /\bstation$/i.test(destinationName) ? destinationName : `${destinationName} Station`;
   $("route-title").textContent = `Route to ${stationName}`;
-  $("destination-operator").textContent = `${info.operator || "Antarctic facility"} · offshore approach corridor`;
+  const port = state.routeManifest?.port;
+  $("destination-operator").textContent = `${info.operator || "Antarctic facility"} · `
+    + (port ? `departs ${port.name}, ${port.country}` : "offshore approach corridor");
   $("route-goal-label").textContent = destinationName;
 }
 
@@ -394,6 +435,8 @@ function updateSelection() {
   const source = leadSource(state.lead);
   state.currentRoute = currentRouteForLead(state.lead);
   if (state.customStart && !state.currentRoute) enqueueCustomRoute(state.lead, true);
+  if (!state.customStart) setCustomStatus(defaultStartStatus());
+  $("port-leg-key").hidden = !activePort();
   document.querySelectorAll(".anchor-row button").forEach((button) => {
     button.classList.toggle("active", Number(button.dataset.lead) === state.lead);
   });
@@ -467,7 +510,12 @@ function updateDecision(source) {
   icon.setAttribute("aria-label", go ? "Go" : "Hold");
   $("decision-label").textContent = go ? "Departure candidate" : "Extended route · Hold";
   const clamp = route.horizon_clamped ? " Conditions beyond L+180 use the final available forecast field." : "";
-  $("decision-copy").textContent = `${routeDecisionCopy(route)}${clamp}`;
+  const port = activePort();
+  const leg = port && Number.isFinite(route.port_leg_hours)
+    ? ` Includes ${(route.port_leg_hours / 24).toFixed(1)} d of open water from ${port.name} at ${port.speed_kn} kn;`
+      + ` ice route ${(route.ice_eta_hours / 24).toFixed(2)} d.`
+    : "";
+  $("decision-copy").textContent = `${routeDecisionCopy(route)}${leg}${clamp}`;
   $("eta-value").textContent = `${Number(route.eta_hours).toFixed(1)} h · ${Number(route.eta_days).toFixed(2)} d`;
   $("route-distance-value").textContent = `${Number(route.route_length_km).toLocaleString("en-GB")} km`;
   $("rio-value").textContent = Number.isFinite(route.min_rio) ? Number(route.min_rio).toFixed(1) : "—";
@@ -565,18 +613,22 @@ function mapSurface() {
 
 function mapGeometry(field, includePan = true) {
   const { width, height } = mapSurface();
+  const bounds = mapBounds();
+  const spanX = bounds.x1 - bounds.x0;
+  const spanY = bounds.y1 - bounds.y0;
   const baseScale = Math.min(
-    (width - 100) / field.width,
-    (height - 90) / field.height,
+    (width - 100) / (field.width * spanX),
+    (height - 90) / (field.height * spanY),
   );
   const scale = baseScale * state.mapView.zoom;
   const drawWidth = field.width * scale;
   const drawHeight = field.height * scale;
+  // ox/oy/drawWidth/drawHeight always describe the SIC grid box [0,1]x[0,1].
   return {
     drawWidth,
     drawHeight,
-    ox: (width - drawWidth) / 2 + (includePan ? state.mapView.panX : 0),
-    oy: (height - drawHeight) / 2 + (includePan ? state.mapView.panY : 0),
+    ox: (width - drawWidth * spanX) / 2 - bounds.x0 * drawWidth + (includePan ? state.mapView.panX : 0),
+    oy: (height - drawHeight * spanY) / 2 - bounds.y0 * drawHeight + (includePan ? state.mapView.panY : 0),
   };
 }
 
@@ -588,11 +640,16 @@ function clampMapPan(field) {
   }
   const { width, height } = mapSurface();
   const geometry = mapGeometry(field, false);
+  const bounds = mapBounds();
+  const left = geometry.ox + bounds.x0 * geometry.drawWidth;
+  const right = geometry.ox + bounds.x1 * geometry.drawWidth;
+  const top = geometry.oy + bounds.y0 * geometry.drawHeight;
+  const bottom = geometry.oy + bounds.y1 * geometry.drawHeight;
   const margin = 55;
-  const minX = margin - (geometry.ox + geometry.drawWidth);
-  const maxX = width - margin - geometry.ox;
-  const minY = margin - (geometry.oy + geometry.drawHeight);
-  const maxY = height - margin - geometry.oy;
+  const minX = margin - right;
+  const maxX = width - margin - left;
+  const minY = margin - bottom;
+  const maxY = height - margin - top;
   state.mapView.panX = Math.max(minX, Math.min(maxX, state.mapView.panX));
   state.mapView.panY = Math.max(minY, Math.min(maxY, state.mapView.panY));
 }
@@ -813,9 +870,42 @@ function drawField(field, label, source, remember = true) {
   const raster = rasterForField(field, source);
   clampMapPan(field);
   const { drawWidth, drawHeight, ox, oy } = mapGeometry(field);
+  const port = activePort();
+  if (port) {
+    // Beyond the SIC grid there is no forecast: plain ocean plus coastline.
+    ensureCoastline();
+    const [r, g, b] = sicColor(0);
+    ctx.fillStyle = `rgba(${r},${g},${b},.42)`;
+    ctx.fillRect(0, 0, width, height);
+    if (coastline?.rings) {
+      ctx.save();
+      ctx.fillStyle = "#1d3239";
+      ctx.strokeStyle = "rgba(165,224,220,.38)";
+      ctx.lineWidth = 0.8;
+      ctx.beginPath();
+      for (const ring of coastline.rings) {
+        ring.forEach(([x, y], index) => {
+          const px = ox + x * drawWidth;
+          const py = oy + y * drawHeight;
+          index ? ctx.lineTo(px, py) : ctx.moveTo(px, py);
+        });
+        ctx.closePath();
+      }
+      ctx.fill("evenodd");
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = "high";
   ctx.drawImage(raster, ox, oy, drawWidth, drawHeight);
+  if (port) {
+    ctx.save();
+    ctx.strokeStyle = "rgba(165,224,220,.28)";
+    ctx.setLineDash([4, 5]);
+    ctx.strokeRect(ox, oy, drawWidth, drawHeight);
+    ctx.restore();
+  }
 
   ctx.strokeStyle = "rgba(165,224,220,.13)";
   ctx.lineWidth = 1;
@@ -878,10 +968,35 @@ function drawField(field, label, source, remember = true) {
         lineWidth: 3.5,
       });
     };
+    if (port && !state.startDrag) {
+      const points = port.waypoints_normalized;
+      ctx.save();
+      ctx.strokeStyle = route?.recommendation === "go" ? "#ff786f" : "#f0b86c";
+      ctx.lineWidth = 2.2;
+      ctx.setLineDash([7, 6]);
+      ctx.shadowColor = "rgba(0,0,0,.72)";
+      ctx.shadowBlur = 4;
+      ctx.beginPath();
+      points.forEach(([x, y], index) => {
+        const px = ox + x * drawWidth;
+        const py = oy + y * drawHeight;
+        index ? ctx.lineTo(px, py) : ctx.moveTo(px, py);
+      });
+      ctx.stroke();
+      ctx.restore();
+      const [ax, ay] = points[points.length - 1];
+      ctx.save();
+      ctx.fillStyle = "rgba(244,250,250,.9)";
+      ctx.beginPath();
+      ctx.arc(ox + ax * drawWidth, oy + ay * drawHeight, 2.6, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
     const start = state.startDrag?.normalized
-      || (state.customStart ? route?.custom_start?.normalized || state.startPreview : routeManifest.start.normalized);
+      || (state.customStart ? route?.custom_start?.normalized || state.startPreview
+        : port ? port.waypoints_normalized[0] : routeManifest.start.normalized);
     state.startMarker = start ? { normalized: start, x: ox + start[0] * drawWidth, y: oy + start[1] * drawHeight } : null;
-    if (start) drawPoint(start, "#7ef0a8", "START");
+    if (start) drawPoint(start, "#7ef0a8", port && !state.startDrag ? `START · ${port.name}` : "START");
     const stations = routeManifest.stations || {
       jang_bogo: { normalized: routeManifest.goal?.normalized, label: "JANG BOGO", route_goal: true },
     };

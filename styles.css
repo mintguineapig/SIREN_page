@@ -550,3 +550,4 @@ input[type=range] { margin:7px 0 4px; }
 .compact-calendar .day-cell.route-pending .route-state { color:#52686c; animation:route-pending 1.2s ease-in-out infinite; }
 @keyframes route-pending { 50% { opacity:.35; } }
 @media (prefers-reduced-motion: reduce) { .compact-calendar .day-cell.route-pending .route-state { animation:none; } }
+.route-key .port-line { border-top-style:dashed; }
