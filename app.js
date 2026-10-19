@@ -24,6 +24,7 @@ const state = {
   startMarker: null,
   startDrag: null,
   startPreview: null,
+  portMarker: null,
   fieldCache: new Map(),
   renderToken: 0,
   lead: 60,
@@ -152,7 +153,7 @@ function ensureCoastline() {
 // Normalized-grid box the map view must contain: the SIC grid plus the port leg.
 function mapBounds() {
   const bounds = { x0: 0, y0: 0, x1: 1, y1: 1 };
-  const points = activePort()?.waypoints_normalized || [];
+  const points = state.routeManifest?.port?.waypoints_normalized || [];
   points.forEach(([x, y], index) => {
     // Wider margin around the port itself so its coast is recognisable.
     const pad = index === 0 ? 0.09 : 0.03;
@@ -871,7 +872,8 @@ function drawField(field, label, source, remember = true) {
   clampMapPan(field);
   const { drawWidth, drawHeight, ox, oy } = mapGeometry(field);
   const port = activePort();
-  if (port) {
+  const gateway = state.routeManifest?.port || null;
+  if (gateway) {
     // Beyond the SIC grid there is no forecast: plain ocean plus coastline.
     ensureCoastline();
     const [r, g, b] = sicColor(0);
@@ -899,7 +901,7 @@ function drawField(field, label, source, remember = true) {
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = "high";
   ctx.drawImage(raster, ox, oy, drawWidth, drawHeight);
-  if (port) {
+  if (gateway) {
     ctx.save();
     ctx.strokeStyle = "rgba(165,224,220,.28)";
     ctx.setLineDash([4, 5]);
@@ -992,11 +994,30 @@ function drawField(field, label, source, remember = true) {
       ctx.fill();
       ctx.restore();
     }
+    state.portMarker = null;
+    if (gateway && !port && !state.startDrag?.toPort) {
+      const [px, py] = gateway.waypoints_normalized[0];
+      state.portMarker = { x: ox + px * drawWidth, y: oy + py * drawHeight };
+      ctx.save();
+      ctx.strokeStyle = "rgba(126,240,168,.75)";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(state.portMarker.x, state.portMarker.y, 5, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+      drawCollisionSafeLabel(ctx, gateway.name, state.portMarker.x, state.portMarker.y, occupiedLabels, {
+        font: `600 11px ${MAP_FONT}`,
+        fill: "rgba(200,232,226,.85)",
+        stroke: "rgba(3,12,16,.95)",
+        lineWidth: 3,
+      });
+    }
     const start = state.startDrag?.normalized
       || (state.customStart ? route?.custom_start?.normalized || state.startPreview
         : port ? port.waypoints_normalized[0] : routeManifest.start.normalized);
     state.startMarker = start ? { normalized: start, x: ox + start[0] * drawWidth, y: oy + start[1] * drawHeight } : null;
-    if (start) drawPoint(start, "#7ef0a8", port && !state.startDrag ? `START · ${port.name}` : "START");
+    const startPort = state.startDrag ? (state.startDrag.toPort ? gateway : null) : port;
+    if (start) drawPoint(start, "#7ef0a8", startPort ? `START · ${startPort.name}` : "START");
     const stations = routeManifest.stations || {
       jang_bogo: { normalized: routeManifest.goal?.normalized, label: "JANG BOGO", route_goal: true },
     };
@@ -1356,11 +1377,24 @@ function nearStartMarker(event) {
   return Math.hypot(point.x - marker.x, point.y - marker.y) <= (event.pointerType === "touch" ? 20 : 12);
 }
 
-function dragNormalized(event) {
+// Inside the SIC grid box START moves freely; outside it, only the gateway port can be chosen.
+function updateStartDrag(event) {
   const point = canvasPoint(event);
   const { drawWidth, drawHeight, ox, oy } = mapGeometry(state.lastMap.field);
+  const x = (point.x - ox) / drawWidth;
+  const y = (point.y - oy) / drawHeight;
+  const gateway = state.routeManifest?.port;
+  const outside = x < 0 || x > 1 || y < 0 || y > 1;
   const clamp = (value) => Math.max(0, Math.min(1, value));
-  return [clamp((point.x - ox) / drawWidth), clamp((point.y - oy) / drawHeight)];
+  state.startDrag.toPort = Boolean(gateway && outside);
+  state.startDrag.normalized = state.startDrag.toPort ? gateway.waypoints_normalized[0] : [clamp(x), clamp(y)];
+}
+
+function nearPortMarker(event) {
+  const marker = state.portMarker;
+  if (!marker) return false;
+  const point = canvasPoint(event);
+  return Math.hypot(point.x - marker.x, point.y - marker.y) <= (event.pointerType === "touch" ? 20 : 12);
 }
 
 async function dropStartMarker(normalized) {
@@ -1382,6 +1416,10 @@ async function dropStartMarker(normalized) {
 }
 
 mapCanvas.addEventListener("pointerdown", (event) => {
+  if (state.customStart && nearPortMarker(event)) {
+    resetCustomStart();
+    return;
+  }
   if (nearStartMarker(event)) {
     state.startDrag = {
       pointerId: event.pointerId, normalized: state.startMarker.normalized,
@@ -1401,11 +1439,14 @@ mapCanvas.addEventListener("pointerdown", (event) => {
 });
 mapCanvas.addEventListener("pointermove", (event) => {
   if (state.startDrag?.pointerId === event.pointerId) {
-    state.startDrag.normalized = dragNormalized(event);
+    updateStartDrag(event);
     redrawLastMap();
     return;
   }
-  if (!state.mapView.dragging) mapCanvas.classList.toggle("over-start", nearStartMarker(event));
+  if (!state.mapView.dragging) {
+    mapCanvas.classList.toggle("over-start", nearStartMarker(event));
+    mapCanvas.classList.toggle("over-port", Boolean(state.customStart) && nearPortMarker(event));
+  }
   if (!state.mapView.dragging || state.mapView.pointerId !== event.pointerId || !state.lastMap) return;
   const rect = mapCanvas.getBoundingClientRect();
   const surface = mapSurface();
@@ -1421,8 +1462,16 @@ function finishMapDrag(event) {
     mapCanvas.classList.remove("dragging-start");
     state.startDrag.pointerId = null;
     const moved = Math.hypot(event.clientX - state.startDrag.originX, event.clientY - state.startDrag.originY) >= 3;
-    if (event.type === "pointerup" && moved) dropStartMarker(state.startDrag.normalized);
-    else { state.startDrag = null; redrawLastMap(); }
+    if (event.type === "pointerup" && moved && state.startDrag.toPort) {
+      state.startDrag = null;
+      if (state.customStart) resetCustomStart();
+      else redrawLastMap();
+    } else if (event.type === "pointerup" && moved) {
+      dropStartMarker(state.startDrag.normalized);
+    } else {
+      state.startDrag = null;
+      redrawLastMap();
+    }
     return;
   }
   if (state.mapView.pointerId !== event.pointerId) return;
