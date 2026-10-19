@@ -21,7 +21,9 @@ const state = {
   currentRoute: null,
   customStart: null,
   customRoutes: new Map(),
-  customPending: null,
+  startMarker: null,
+  startDrag: null,
+  startPreview: null,
   fieldCache: new Map(),
   renderToken: 0,
   lead: 60,
@@ -83,8 +85,8 @@ function routeForLead(lead) {
   return state.routeManifest?.routes?.[String(lead)] || null;
 }
 
-// Custom departure point: the published 16-day A* is re-run in route-worker.js.
-// The calendar keeps the precomputed standard-approach routes.
+// Custom departure point: the published 16-day A* is re-run in route-worker.js for the
+// selected date first, then for every date visible in the calendar.
 let routeWorker = null;
 let routeWorkerSeq = 0;
 const routeWorkerPending = new Map();
@@ -107,9 +109,14 @@ function runRouteWorker(request) {
   });
 }
 
-function customRouteKey(lead) {
+function customContextKey() {
   const start = state.customStart;
-  return start ? `${state.destination}|${state.iceClass}|${lead}|${start.lat}|${start.lon}` : null;
+  return start ? `${state.destination}|${state.iceClass}|${start.lat}|${start.lon}` : null;
+}
+
+function customRouteKey(lead) {
+  const context = customContextKey();
+  return context ? `${context}|${lead}` : null;
 }
 
 function currentRouteForLead(lead) {
@@ -127,38 +134,79 @@ function formatLatLon([lat, lon]) {
   return `${Math.abs(lat).toFixed(2)}°${lat < 0 ? "S" : "N"} ${Math.abs(lon).toFixed(2)}°${lon < 0 ? "W" : "E"}`;
 }
 
-async function requestCustomRoute() {
+// One search at a time; jobs whose start/destination/class no longer match are dropped.
+const customQueue = [];
+const customQueued = new Set();
+let customBusy = false;
+let calendarFrame = null;
+
+function enqueueCustomRoute(lead, priority = false) {
   const manifest = state.routeManifest;
   const fields = state.forecastManifest?.fields;
-  if (!state.customStart || !manifest?.goal?.grid || !fields) return;
-  const key = customRouteKey(state.lead);
-  if (state.customRoutes.has(key) || state.customPending === key) return;
-  state.customPending = key;
-  try {
-    const route = await runRouteWorker({
+  const key = customRouteKey(lead);
+  if (!key || !manifest?.goal?.grid || !fields || lead < 1 || lead > 180) return;
+  if (state.customRoutes.has(key)) return;
+  if (customQueued.has(key)) {
+    if (!priority) return;
+    const index = customQueue.findIndex((job) => job.key === key);
+    if (index > 0) customQueue.unshift(...customQueue.splice(index, 1));
+    return;
+  }
+  const job = {
+    key, lead, context: customContextKey(),
+    request: {
       issueDate: state.snapshot.issue_date,
-      lead: state.lead,
+      lead,
       iceClass: state.iceClass,
       goal: manifest.goal.grid,
       startLatLon: [state.customStart.lat, state.customStart.lon],
-      fieldUrls: Object.fromEntries(Object.entries(fields).map(([lead, field]) => [lead, siteUrl(field.url)])),
-    });
-    state.customRoutes.set(key, route);
-  } catch (error) {
-    console.error(error);
-    state.customRoutes.set(key, { status: "error", error: String(error.message || error) });
-  } finally {
-    if (state.customPending === key) state.customPending = null;
+      fieldUrls: Object.fromEntries(Object.entries(fields).map(([value, field]) => [value, siteUrl(field.url)])),
+    },
+  };
+  customQueued.add(key);
+  if (priority) customQueue.unshift(job);
+  else customQueue.push(job);
+  pumpCustomQueue();
+}
+
+async function pumpCustomQueue() {
+  if (customBusy) return;
+  customBusy = true;
+  while (customQueue.length) {
+    const job = customQueue.shift();
+    if (job.context !== customContextKey()) {
+      customQueued.delete(job.key);
+      continue;
+    }
+    let route;
+    try {
+      route = await runRouteWorker(job.request);
+    } catch (error) {
+      console.error(error);
+      route = { status: "error", error: String(error.message || error) };
+    }
+    customQueued.delete(job.key);
+    state.customRoutes.set(job.key, route);
+    if (job.context === customContextKey()) customRouteReady(job.lead, route);
   }
-  if (key !== customRouteKey(state.lead)) return;
-  const route = state.customRoutes.get(key);
+  customBusy = false;
+}
+
+function customRouteReady(lead, route) {
+  if (calendarFrame === null) {
+    calendarFrame = requestAnimationFrame(() => {
+      calendarFrame = null;
+      renderCalendar();
+    });
+  }
+  if (lead !== state.lead) return;
   if (route.custom_start) {
     const snap = route.custom_start;
-    const far = snap.snap_km > 25;
+    state.startPreview = null;
     setCustomStatus(
-      `Custom start ${formatLatLon([state.customStart.lat, state.customStart.lon])} → nearest navigable cell `
-      + `${formatLatLon(snap.latlon)} (${snap.snap_km} km away). The calendar still shows the standard approach.`,
-      far ? "warn" : "active",
+      `Start ${formatLatLon([state.customStart.lat, state.customStart.lon])} → nearest navigable cell `
+      + `${formatLatLon(snap.latlon)} (${snap.snap_km} km away). Calendar voyage times are from this start.`,
+      snap.snap_km > 25 ? "warn" : "active",
     );
   } else if (route.status === "error") {
     setCustomStatus(`Route calculation failed: ${route.error}`, "warn");
@@ -170,7 +218,7 @@ async function requestCustomRoute() {
 }
 
 function applyCustomStart(event) {
-  event.preventDefault();
+  event?.preventDefault();
   const latInput = $("start-lat");
   const lonInput = $("start-lon");
   const lat = Number.parseFloat(latInput.value);
@@ -194,7 +242,8 @@ function resetCustomStart() {
   $("start-lon").value = "";
   $("start-lat").removeAttribute("aria-invalid");
   $("start-lon").removeAttribute("aria-invalid");
-  setCustomStatus("Standard offshore approach start. Enter a latitude and longitude to plan from another point.");
+  state.startPreview = null;
+  setCustomStatus("Standard offshore approach start. Enter a latitude and longitude, or drag START on the map.");
   updateSelection();
 }
 
@@ -344,7 +393,7 @@ function updateSelection() {
   $("target-date-next").disabled = targetInput.disabled || state.lead >= horizon;
   const source = leadSource(state.lead);
   state.currentRoute = currentRouteForLead(state.lead);
-  if (state.customStart && !state.currentRoute) requestCustomRoute();
+  if (state.customStart && !state.currentRoute) enqueueCustomRoute(state.lead, true);
   document.querySelectorAll(".anchor-row button").forEach((button) => {
     button.classList.toggle("active", Number(button.dataset.lead) === state.lead);
   });
@@ -387,7 +436,7 @@ function updateDecision(source) {
   const route = state.currentRoute;
   if (state.customStart && !route) {
     icon.textContent = "·";
-    $("decision-label").textContent = "Calculating custom route";
+    $("decision-label").textContent = "Calculating route";
     $("decision-copy").textContent = `Searching the 16-day ${state.iceClass} POLARIS route from your start point…`;
     return;
   }
@@ -794,7 +843,7 @@ function drawField(field, label, source, remember = true) {
 
   const route = state.currentRoute;
   const routeManifest = state.routeManifest;
-  if (route?.path?.length) {
+  if (route?.path?.length && !state.startDrag) {
     ctx.save();
     ctx.strokeStyle = route.recommendation === "go" ? "#ff786f" : "#f0b86c";
     ctx.lineWidth = 3.1;
@@ -829,9 +878,10 @@ function drawField(field, label, source, remember = true) {
         lineWidth: 3.5,
       });
     };
-    const customStart = state.customStart ? route?.custom_start?.normalized : null;
-    if (!state.customStart) drawPoint(routeManifest.start.normalized, "#7ef0a8", "START");
-    else if (customStart) drawPoint(customStart, "#7ef0a8", "CUSTOM START");
+    const start = state.startDrag?.normalized
+      || (state.customStart ? route?.custom_start?.normalized || state.startPreview : routeManifest.start.normalized);
+    state.startMarker = start ? { normalized: start, x: ox + start[0] * drawWidth, y: oy + start[1] * drawHeight } : null;
+    if (start) drawPoint(start, "#7ef0a8", "START");
     const stations = routeManifest.stations || {
       jang_bogo: { normalized: routeManifest.goal?.normalized, label: "JANG BOGO", route_goal: true },
     };
@@ -914,11 +964,17 @@ function renderCalendar() {
     const date = addDays(start, i);
     const lead = Math.round((date - issue) / 86400000);
     const source = lead >= 1 && lead <= 180 ? leadSource(lead) : "unavailable";
-    const route = lead >= 1 && lead <= 180 ? routeForLead(lead) : null;
-    const routeClass = route?.recommendation === "go" ? "route-go" : route ? "route-hold" : "";
-    const routeLabel = !route ? "—" : route.status === "no_path"
+    const inRange = lead >= 1 && lead <= 180;
+    const route = inRange ? currentRouteForLead(lead) : null;
+    const pending = inRange && state.customStart && !route;
+    if (pending) enqueueCustomRoute(lead);
+    const failed = route?.status === "error";
+    const routeClass = pending ? "route-pending" : failed ? "route-hold"
+      : route?.recommendation === "go" ? "route-go" : route ? "route-hold" : "";
+    const routeLabel = pending ? "…" : failed ? "ERR" : !route ? "—" : route.status === "no_path"
       ? "NO PATH" : `${Number(route.eta_days).toFixed(1)}d`;
-    const routeDetail = !route ? "Route unavailable" : route.status === "no_path"
+    const routeDetail = pending ? "Calculating route from start" : failed ? `Route calculation failed: ${route.error}`
+      : !route ? "Route unavailable" : route.status === "no_path"
       ? `${state.iceClass}: no continuous route` :
         `${state.iceClass}: ${Number(route.eta_days).toFixed(2)} days · ${route.recommendation.toUpperCase()}`;
     const button = document.createElement("button");
@@ -1169,7 +1225,57 @@ mapCanvas.addEventListener("wheel", (event) => {
   };
   setMapZoom(state.mapView.zoom * (event.deltaY < 0 ? 1.16 : 1 / 1.16), focal);
 }, { passive: false });
+function canvasPoint(event) {
+  const rect = mapCanvas.getBoundingClientRect();
+  const surface = mapSurface();
+  return {
+    x: (event.clientX - rect.left) * surface.width / rect.width,
+    y: (event.clientY - rect.top) * surface.height / rect.height,
+  };
+}
+
+function nearStartMarker(event) {
+  const marker = state.startMarker;
+  if (!marker || !state.lastMap?.field) return false;
+  const point = canvasPoint(event);
+  return Math.hypot(point.x - marker.x, point.y - marker.y) <= (event.pointerType === "touch" ? 20 : 12);
+}
+
+function dragNormalized(event) {
+  const point = canvasPoint(event);
+  const { drawWidth, drawHeight, ox, oy } = mapGeometry(state.lastMap.field);
+  const clamp = (value) => Math.max(0, Math.min(1, value));
+  return [clamp((point.x - ox) / drawWidth), clamp((point.y - oy) / drawHeight)];
+}
+
+async function dropStartMarker(normalized) {
+  const { width, height } = state.lastMap.field;
+  const cell = [Math.round(normalized[1] * (height - 1)), Math.round(normalized[0] * (width - 1))];
+  try {
+    const [lat, lon] = await runRouteWorker({ type: "cell", cell });
+    $("start-lat").value = lat.toFixed(2);
+    $("start-lon").value = lon.toFixed(2);
+    state.startPreview = normalized;
+    applyCustomStart();
+  } catch (error) {
+    console.error(error);
+    setCustomStatus(`Could not read the dropped position: ${error.message || error}`, "warn");
+  } finally {
+    state.startDrag = null;
+    redrawLastMap();
+  }
+}
+
 mapCanvas.addEventListener("pointerdown", (event) => {
+  if (nearStartMarker(event)) {
+    state.startDrag = {
+      pointerId: event.pointerId, normalized: state.startMarker.normalized,
+      originX: event.clientX, originY: event.clientY,
+    };
+    mapCanvas.setPointerCapture(event.pointerId);
+    mapCanvas.classList.add("dragging-start");
+    return;
+  }
   if (state.mapView.zoom <= 1) return;
   state.mapView.dragging = true;
   state.mapView.pointerId = event.pointerId;
@@ -1179,6 +1285,12 @@ mapCanvas.addEventListener("pointerdown", (event) => {
   mapCanvas.classList.add("dragging");
 });
 mapCanvas.addEventListener("pointermove", (event) => {
+  if (state.startDrag?.pointerId === event.pointerId) {
+    state.startDrag.normalized = dragNormalized(event);
+    redrawLastMap();
+    return;
+  }
+  if (!state.mapView.dragging) mapCanvas.classList.toggle("over-start", nearStartMarker(event));
   if (!state.mapView.dragging || state.mapView.pointerId !== event.pointerId || !state.lastMap) return;
   const rect = mapCanvas.getBoundingClientRect();
   const surface = mapSurface();
@@ -1190,6 +1302,14 @@ mapCanvas.addEventListener("pointermove", (event) => {
   redrawLastMap();
 });
 function finishMapDrag(event) {
+  if (state.startDrag?.pointerId === event.pointerId) {
+    mapCanvas.classList.remove("dragging-start");
+    state.startDrag.pointerId = null;
+    const moved = Math.hypot(event.clientX - state.startDrag.originX, event.clientY - state.startDrag.originY) >= 3;
+    if (event.type === "pointerup" && moved) dropStartMarker(state.startDrag.normalized);
+    else { state.startDrag = null; redrawLastMap(); }
+    return;
+  }
   if (state.mapView.pointerId !== event.pointerId) return;
   state.mapView.dragging = false;
   state.mapView.pointerId = null;

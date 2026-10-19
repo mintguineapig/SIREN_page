@@ -60,7 +60,7 @@
           <div class="map-legend"><span>Open water</span><div class="gradient"></div><span>100% SIC</span></div>
           <div class="route-key">
             <span><i class="forecast-line"></i>SIREN proposed route</span>
-            <span><i class="start-point"></i>approach</span>
+            <span><i class="start-point"></i>start</span>
             <span><i class="goal-point"></i><b id="route-goal-label">Jang Bogo</b> · destination</span>
           </div>
         </div>
@@ -80,14 +80,14 @@
             <div><p id="route-decision-kicker" class="kicker">PC5 DECISION SUPPORT</p><h2 id="route-title">Route to Jang Bogo Station</h2></div>
           </div>
           <p id="destination-operator" class="destination-meta">Republic of Korea · offshore approach corridor</p>
-          <form id="custom-start-form" class="custom-start" aria-label="Custom departure point" novalidate>
+          <form id="custom-start-form" class="custom-start" aria-label="Departure point" novalidate>
             <span class="custom-start-label">Start</span>
             <input id="start-lat" type="number" inputmode="decimal" step="any" min="-90" max="-39" placeholder="Lat −62.50" aria-label="Start latitude (degrees, south negative)">
             <input id="start-lon" type="number" inputmode="decimal" step="any" min="-180" max="180" placeholder="Lon 172.30" aria-label="Start longitude (degrees, west negative)">
             <button type="submit">Route</button>
             <button id="custom-start-reset" type="button" title="Use the standard offshore approach">Reset</button>
           </form>
-          <p id="custom-start-status" class="custom-start-status">Standard offshore approach start. Enter a latitude and longitude to plan from another point.</p>
+          <p id="custom-start-status" class="custom-start-status">Standard offshore approach start. Enter a latitude and longitude, or drag START on the map.</p>
           <section class="sidebar-calendar" aria-label="Monthly voyage-time outlook">
             <div class="sidebar-calendar-head">
               <h3 id="calendar-title">Monthly voyage times</h3>

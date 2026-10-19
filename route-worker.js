@@ -309,10 +309,18 @@ async function solve(request) {
   };
 }
 
+// Grid cell -> lat/lon, used when START is dragged on the map.
+async function cellLatLon({ base, cell }) {
+  const { meta, lat, lon } = await loadInputs(base);
+  const index = cell[0] * meta.width + cell[1];
+  return [lat[index], lon[index]];
+}
+
 self.onmessage = async (event) => {
   const { id } = event.data;
   try {
-    self.postMessage({ id, ok: true, route: await solve(event.data) });
+    const result = event.data.type === "cell" ? await cellLatLon(event.data) : await solve(event.data);
+    self.postMessage({ id, ok: true, route: result });
   } catch (error) {
     self.postMessage({ id, ok: false, error: String(error?.message || error) });
   }

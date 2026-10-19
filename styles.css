@@ -545,3 +545,8 @@ input[type=range] { margin:7px 0 4px; }
 .custom-start-status { margin:0 0 8px; color:var(--muted); font-size:10px; line-height:1.45; }
 .custom-start-status.active { color:#7ef0a8; }
 .custom-start-status.warn { color:#ef9b75; }
+#ice-map.over-start { cursor:move; }
+#ice-map.dragging-start { cursor:grabbing; }
+.compact-calendar .day-cell.route-pending .route-state { color:#52686c; animation:route-pending 1.2s ease-in-out infinite; }
+@keyframes route-pending { 50% { opacity:.35; } }
+@media (prefers-reduced-motion: reduce) { .compact-calendar .day-cell.route-pending .route-state { animation:none; } }
