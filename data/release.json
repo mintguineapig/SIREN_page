@@ -1,13 +1,13 @@
 {
   "schema_version": 1,
-  "issue_date": "2026-10-29",
-  "generated_at": "2026-11-03T06:26:49.713587+00:00",
+  "issue_date": "2026-10-30",
+  "generated_at": "2026-11-04T06:25:46.284905+00:00",
   "model_tag": "lcond_dsched_lb3_L1-180n64_era5past_lnlog_lwpersist",
   "model_mode": "dsched",
   "default_ice_class": "PC5",
   "default_destination": "jang_bogo",
   "destination_count": 6,
   "file_count": 274,
-  "bytes": 109681125,
+  "bytes": 109742561,
   "research_only": true
 }
